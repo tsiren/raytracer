@@ -9,6 +9,7 @@ def normalize(v):
 
 
 class vec(namedtuple('vec', "x y z")):
+    """Vector / point in 3D space."""
 
     def __add__(self, other):
         if other.__class__ != self.__class__:
@@ -20,9 +21,8 @@ class vec(namedtuple('vec', "x y z")):
             raise TypeError
         return self.__class__(*[a - b for a, b in zip(self, other)])
 
-    """ dot product """
-
     def __mul__(self, other):
+        """dot product"""
         if other.__class__ != self.__class__:
             raise TypeError
         return self.x * other.x + self.y * other.y + self.z * other.z
