@@ -1,11 +1,22 @@
 import pdb
 from collections import namedtuple
 from math import sqrt
+from math import floor
 
 
 def normalize(v):
     vlen = v.len()
+    if vlen == 0.0:
+        return v
     return vec(v.x / vlen, v.y / vlen, v.z / vlen)
+
+
+def dist(v1, v2):
+    return sqrt((v1.x - v2.x)**2 + (v1.y - v2.y)**2 + (v1.z - v2.z)**2)
+
+
+def mul(v, s):
+    return vec(v.x * s, v.y * s, v.z * s)
 
 
 class vec(namedtuple('vec', "x y z")):
@@ -31,15 +42,16 @@ class vec(namedtuple('vec', "x y z")):
         return sqrt(self.x ** 2 + self.y ** 2 + self.z ** 2)
 
 
+shape = namedtuple('shape', "type point color normal")
+
+
 max_depth = 10
 
-spheres = []
-spheres.append(vec(0.0, 0.45, 1.0))
-spheres.append(vec(0.0, -0.45, 1.0))
-
-sphere_colors = {}
-sphere_colors[spheres[0]] = (255, 0, 0)
-sphere_colors[spheres[1]] = (245, 240, 82)
+shapes = []
+shapes.append(shape('sphere', vec(0.0, 0.45, 1.0), (255, 0, 0), 0))
+shapes.append(shape('sphere', vec(0.0, -0.45, 1.5), (245, 240, 82), 0))
+#last tuple is plane normal
+shapes.append(shape('plane', vec(0.0, -1.0, 0.0), (0, 0, 255), vec(0.0, 1.0, 0.0))) # y-coord plane
 
 spec_value = 5.0
 spec_power = 100
@@ -49,7 +61,7 @@ light_pos = vec(0.5, 0.5, 0.0)
 reso = 255
 
 
-def calculate_lambert(intersect, sphere_center):
+def calculate_lambert(intersect, shape):
     """Lambert is defined as
     dot product between surface normal & vector towards light source.
     """
@@ -59,22 +71,66 @@ def calculate_lambert(intersect, sphere_center):
 
     # intersect - sphere_center = vector from sphere center to intersection
     # --> sphere normal
-    sphere_normal = normalize(intersect - sphere_center)
+    normal = None
+    if shape.type == 'sphere':
+        normal = normalize(intersect - shape.point)
+    elif shape.type == 'plane':
+        normal = shape.normal
+    else:
+        raise TypeError('invalid type', shape.type)
 
-    lambert = max(0.0, sphere_normal * light_dir)
+    lambert = max(0.0, normal * light_dir)
     if lambert == 0.0:
         return (0, 0, 0)
     else:
-        color = sphere_colors[sphere_center]
+        color = shape.color
+        if shape.type == 'plane':
+            color = plane_color(intersect)
         color = map(lambda x: x * lambert, color)
         return color
+
+
+def plane_color(point):
+    tmp = floor(point.x) + floor(point.z)
+    return (0, 0, 0) if tmp % 2 == 1 else (255, 255, 255)
 
 
 def pixel_coordinate_to_world_coordinate(coordinate):
     return ((coordinate / float(reso)) - 0.5) * 2.0
 
 
-def ray_intersects_sphere(ray_origin, ray_direction, spheres):
+def ray_intersects(ray_origin, ray_direction, shape_self):
+    intersect = None
+    closest_shape = None
+    t_min = 0.0
+    t = 0.0
+    for shape in shapes:
+        tmp = None
+        if shape == shape_self:
+            continue
+        elif shape.type == 'plane':
+            tmp, t = ray_intersects_plane(ray_origin, ray_direction, shape.point, shape.normal) 
+        elif shape.type == 'sphere':
+            tmp, t = ray_intersects_sphere(ray_origin, ray_direction, shape.point)
+        else:
+            raise TypeError('invalid type', shape.type)
+        if tmp and (t_min > t or t_min == 0.0):
+            intersect = tmp
+            closest_shape = shape
+            t_min = t
+    return intersect, closest_shape
+
+
+def ray_intersects_plane(ray_origin, ray_direction, plane_point, plane_normal):
+    denom = ray_direction * plane_normal
+    if (abs(denom) > 0.00001):
+        t = (plane_point - ray_origin) * plane_normal / denom
+        if (t >= 0):
+            return mul(ray_direction, t), t
+    return False, 0.0
+
+
+def ray_intersects_sphere(ray_origin, ray_direction, sphere_center):
     """https://en.wikipedia.org/wiki/Line%E2%80%93sphere_intersection
     simplified 2nd degree polynomial
 
@@ -86,34 +142,42 @@ def ray_intersects_sphere(ray_origin, ray_direction, spheres):
     thats why we only take positive t!
     """
     point = None
-    sphere = None
-    t_min = 0.0
 
-    for sphere_center in spheres:
-        dist = ray_origin - sphere_center
-        b = ray_direction * dist
-        c = dist * dist - sphere_radius ** 2
-        D = b * b - c
-        if D >= 0:
-            t0 = -b - sqrt(D)
-            t1 = -b + sqrt(D)
-            t = min(t0, t1)
-            # negative t goes away from light position -> param d in line
-            # equation, distance along line from starting point
-            if t > 0.0 and (not point or t_min > t):
-                point = sphere_point(ray_origin, ray_direction, t)
-                sphere = sphere_center
-                t_min = t
+    dist = ray_origin - sphere_center
+    b = ray_direction * dist
+    c = dist * dist - sphere_radius ** 2
+    D = b * b - c
+    if D >= 0:
+        t0 = -b - sqrt(D)
+        t1 = -b + sqrt(D)
+        t = min(t0, t1)
+        # negative t goes away from light position -> param d in line
+        # equation, distance along line from starting point
+        if t > 0.0:
+            point = sphere_point(ray_origin, ray_direction, t)
+            return point, t
 
-    return point, sphere
+    return point, 0.0
 
 
-def is_shadowed(ray_origin, intersect_sphere):
-    other_spheres = list(spheres)
-    other_spheres.remove(intersect_sphere)
+def is_shadowed(ray_origin, shape_self):
     ray_direction = normalize(light_pos - ray_origin)
-    retval = ray_intersects_sphere(ray_origin, ray_direction, other_spheres)
-    return retval[0] is not None
+    point = None
+    dist_light = dist(ray_origin, light_pos) #todo, treat point light as sphere to get t?
+    for shape in shapes:
+        if shape == shape_self:
+            continue
+        if shape.type == 'plane':
+            #pass
+            #todo fixme
+            point = ray_intersects_plane(ray_origin, ray_direction, shape.point, shape.normal)
+        elif shape.type == 'sphere':
+            point = ray_intersects_sphere(ray_origin, ray_direction, shape.point)
+        else:
+            raise TypeError('invalid type', shape.type)
+        if point is not None and point[0] and point[1] < dist_light:
+            return True
+    return False
 
 
 def sphere_point(ray_origin, ray_direction, t):
@@ -124,11 +188,12 @@ def sphere_point(ray_origin, ray_direction, t):
 
 def render_image(pixels):
     p = 0
-    ray_direction = vec(0.0, 0.0, 1.0)
+    ray_origin = vec(0.0, 0.0, 0.0)
     for i in range(reso):
         for j in range(reso):
-            ray_origin = vec(pixel_coordinate_to_world_coordinate(
-                j), pixel_coordinate_to_world_coordinate(i), 0.0)
+            #if i == reso - 1 and j == reso / 2 + 20:
+            #    pdb.set_trace()
+            ray_direction = normalize(vec(pixel_coordinate_to_world_coordinate(j), pixel_coordinate_to_world_coordinate(i), 1.0))
             initial_color = (pixels[p + 2], pixels[p + 1], pixels[p])
             color = compute_color(initial_color, ray_origin, ray_direction)
             pixels[p] = color[2]
@@ -142,16 +207,20 @@ def compute_color(initial_color, ray_origin, ray_direction):
     depth = 1
     reflect_coef = 1.0
     color = (0, 0, 0)
-    sphere_self = None
+    shape_self = None 
 
     while depth < max_depth:
-        other_spheres = list(spheres)
-        if sphere_self:
-            other_spheres.remove(sphere_self)
-        point, sphere = ray_intersects_sphere(
-            ray_origin, ray_direction, other_spheres)
+        point, shape = ray_intersects(ray_origin, ray_direction, shape_self)
+
         if point:
-            n = normalize(point - sphere)
+            n = None
+            if shape.type == 'plane':
+                if depth == 1: 
+                    return plane_color(point)
+                #n = normalize(shape.normal - point)
+                n = shape.normal
+            else:
+                n = normalize(point - shape.point)
             view_dir = normalize(point - ray_origin)
             light_dir = normalize(light_pos - point)
             blinn_dir = normalize(light_dir - view_dir)
@@ -164,16 +233,15 @@ def compute_color(initial_color, ray_origin, ray_direction):
             # new direction is calculated from old using reflection
             # see http://www.3dkingdoms.com/weekly/weekly.php?a=2
             ray_direction = ray_direction - reflet
-
-            if not is_shadowed(point, sphere):
-                new_color = calculate_lambert(point, sphere)
+            if not is_shadowed(ray_origin, shape):
+                new_color = calculate_lambert(point, shape)
                 color = map(lambda x, y: min(
                     int(x + y * reflect_coef), 255), color, new_color)
                 if blinn_term > 0.0:
                     color = map(lambda x: min(
                         int(x=x + x * blinn_term), 255), color)
             reflect_coef *= 0.6
-            sphere_self = sphere
+            shape_self = shape
         elif depth == 1:
             color = initial_color
             break
