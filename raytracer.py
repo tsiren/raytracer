@@ -20,6 +20,7 @@ def mul(v, s):
 
 
 class vec(namedtuple('vec', "x y z")):
+
     """Vector / point in 3D space."""
 
     def __add__(self, other):
@@ -42,16 +43,15 @@ class vec(namedtuple('vec', "x y z")):
         return sqrt(self.x ** 2 + self.y ** 2 + self.z ** 2)
 
 
-shape = namedtuple('shape', "type point color normal")
-
-
 max_depth = 10
 
+shape = namedtuple('shape', "type point color normal")
 shapes = []
 shapes.append(shape('sphere', vec(0.0, 0.45, 1.0), (255, 0, 0), 0))
 shapes.append(shape('sphere', vec(0.0, -0.45, 1.5), (245, 240, 82), 0))
-#last tuple is plane normal
-shapes.append(shape('plane', vec(0.0, -1.0, 0.0), (0, 0, 255), vec(0.0, 1.0, 0.0))) # y-coord plane
+# y-coord plane, last tuple is plane normal
+shapes.append(
+    shape('plane', vec(0.0, -1.0, 0.0), (0, 0, 255), vec(0.0, 1.0, 0.0)))
 
 spec_value = 5.0
 spec_power = 100
@@ -109,9 +109,11 @@ def ray_intersects(ray_origin, ray_direction, shape_self):
         if shape == shape_self:
             continue
         elif shape.type == 'plane':
-            tmp, t = ray_intersects_plane(ray_origin, ray_direction, shape.point, shape.normal) 
+            tmp, t = ray_intersects_plane(
+                ray_origin, ray_direction, shape.point, shape.normal)
         elif shape.type == 'sphere':
-            tmp, t = ray_intersects_sphere(ray_origin, ray_direction, shape.point)
+            tmp, t = ray_intersects_sphere(
+                ray_origin, ray_direction, shape.point)
         else:
             raise TypeError('invalid type', shape.type)
         if tmp and (t_min > t or t_min == 0.0):
@@ -163,16 +165,16 @@ def ray_intersects_sphere(ray_origin, ray_direction, sphere_center):
 def is_shadowed(ray_origin, shape_self):
     ray_direction = normalize(light_pos - ray_origin)
     point = None
-    dist_light = dist(ray_origin, light_pos) #todo, treat point light as sphere to get t?
+    dist_light = dist(ray_origin, light_pos)
     for shape in shapes:
         if shape == shape_self:
             continue
         if shape.type == 'plane':
-            #pass
-            #todo fixme
-            point = ray_intersects_plane(ray_origin, ray_direction, shape.point, shape.normal)
+            point = ray_intersects_plane(
+                ray_origin, ray_direction, shape.point, shape.normal)
         elif shape.type == 'sphere':
-            point = ray_intersects_sphere(ray_origin, ray_direction, shape.point)
+            point = ray_intersects_sphere(
+                ray_origin, ray_direction, shape.point)
         else:
             raise TypeError('invalid type', shape.type)
         if point is not None and point[0] and point[1] < dist_light:
@@ -191,9 +193,10 @@ def render_image(pixels):
     ray_origin = vec(0.0, 0.0, 0.0)
     for i in range(reso):
         for j in range(reso):
-            #if i == reso - 1 and j == reso / 2 + 20:
-            #    pdb.set_trace()
-            ray_direction = normalize(vec(pixel_coordinate_to_world_coordinate(j), pixel_coordinate_to_world_coordinate(i), 1.0))
+            ray_direction = normalize(
+                vec(pixel_coordinate_to_world_coordinate(j),
+                    pixel_coordinate_to_world_coordinate(i),
+                    1.0))
             initial_color = (pixels[p + 2], pixels[p + 1], pixels[p])
             color = compute_color(initial_color, ray_origin, ray_direction)
             pixels[p] = color[2]
@@ -207,7 +210,7 @@ def compute_color(initial_color, ray_origin, ray_direction):
     depth = 1
     reflect_coef = 1.0
     color = (0, 0, 0)
-    shape_self = None 
+    shape_self = None
 
     while depth < max_depth:
         point, shape = ray_intersects(ray_origin, ray_direction, shape_self)
@@ -215,9 +218,8 @@ def compute_color(initial_color, ray_origin, ray_direction):
         if point:
             n = None
             if shape.type == 'plane':
-                if depth == 1: 
+                if depth == 1:
                     return plane_color(point)
-                #n = normalize(shape.normal - point)
                 n = shape.normal
             else:
                 n = normalize(point - shape.point)
